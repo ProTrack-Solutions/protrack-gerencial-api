@@ -391,7 +391,7 @@ func cashChange(received *float64, method enums.PaymentMethod, total, downPaymen
 // createInstallmentsTx gera as parcelas (contas a receber) de uma venda a prazo.
 // Cada parcela vence no dia dueDays; a primeira cai no mês atual se esse dia ainda não chegou.
 func (s *Service) createInstallmentsTx(ctx context.Context, tx db.DBTX, userId, companyId, customerId, saleId uuid.UUID, amount float64, installmentsCount, dueDays int32) error {
-	installmentValue := amount / float64(installmentsCount)
+	values := splitInstallments(amount, installmentsCount)
 	dataBase := time.Now()
 
 	for i := 0; i < int(installmentsCount); i++ {
@@ -411,8 +411,8 @@ func (s *Service) createInstallmentsTx(ctx context.Context, tx db.DBTX, userId, 
 		if err := s.accountsReceivableService.CreateAccountReceivableInTx(ctx, tx, userId, companyId, accountsReceivableDomain.CreateAccountReceivableRequest{
 			CustomerID:        customerId,
 			SaleID:            saleId,
-			Balance:           installmentValue,
-			TotalAmount:       installmentValue,
+			Balance:           values[i],
+			TotalAmount:       values[i],
 			InstallmentNumber: int64(i + 1),
 			TotalInstallments: int64(installmentsCount),
 			DueDate:           maturity.Format("2006-01-02"),
@@ -422,6 +422,28 @@ func (s *Service) createInstallmentsTx(ctx context.Context, tx db.DBTX, userId, 
 	}
 
 	return nil
+}
+
+// splitInstallments divide o valor em parcelas de centavos inteiros cuja soma é
+// exatamente o valor (arredondado a centavos). A sobra da divisão vai 1 centavo por
+// parcela a partir da primeira: R$ 100,00 em 3x = 33,34 + 33,33 + 33,33.
+func splitInstallments(amount float64, count int32) []float64 {
+	if count <= 0 {
+		return nil
+	}
+	totalCents := int64(math.Round(amount * 100))
+	base := totalCents / int64(count)
+	remainder := totalCents % int64(count)
+
+	values := make([]float64, count)
+	for i := range values {
+		cents := base
+		if int64(i) < remainder {
+			cents++
+		}
+		values[i] = float64(cents) / 100
+	}
+	return values
 }
 
 // DeleteSale cancela a venda desfazendo, na mesma transação, tudo o que o CreateSale fez:
