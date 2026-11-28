@@ -27,6 +27,11 @@ type PaginatedResponse[T any] struct {
 }
 
 func NewPaginatedResponse[T any](data []T, total int64, params PaginationParams) PaginatedResponse[T] {
+	// Slice nil vira "data": null no JSON e o front quebra ao percorrer a lista
+	// (ex.: busca sem resultado na tela de venda). Sem itens, devolve [].
+	if data == nil {
+		data = []T{}
+	}
 	totalPages := int32(math.Ceil(float64(total) / float64(params.PerPage)))
 	return PaginatedResponse[T]{
 		Data:       data,
